@@ -1,0 +1,62 @@
+seed: &seed 185
+
+# Data Setting
+data_folder:  ./data
+output_folder:  ./output/
+
+train_batch_size : &train_batch_size 16
+valid_batch_size : &valid_batch_size 16
+test_batch_size : &test_batch_size 16
+
+train_csv:  train-clean-100.csv
+valid_csv:  dev-clean.csv
+test_csv:  test-clean.csv
+
+train_loader_kwargs:
+    batch_size: *train_batch_size
+    shuffle: True,
+    num_workers: 6
+
+valid_loader_kwargs:
+    batch_size: *valid_batch_size
+    shuffle: True,
+    num_workers: 6
+
+test_loader_kwargs:
+    batch_size: *test_batch_size
+    shuffle: True,
+    num_workers: 6
+
+
+number_of_epochs: 5
+lr: 0.1
+
+
+embedding_model_name: bert-base-uncased
+
+encoder:
+    bidirectional_encoder: False
+    rnn_type : 2
+    num_layers: 2
+    rnn_hidden_dim: 64
+    dropout: 0.1
+    linear_dims: 64
+    embed_dim: 768
+
+decoder:
+    bidirectional_encoder: False
+    rnn_type : 2
+    num_layers: 2
+    rnn_hidden_dim: 64
+    dropout: 0.1
+    linear_dims: 64
+    embed_dim: 768
+    tie_embeddings: True
+    vocab_size: 30522
+
+
+
+
+
+
+
