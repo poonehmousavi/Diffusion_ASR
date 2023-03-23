@@ -29,30 +29,46 @@ test_loader_kwargs:
 
 
 number_of_epochs: 5
-lr: 0.1
-
-
+lr: 0.0001
+print_every: 10
+# Model Parameters
+rnn_type: &rnn_type gru
+num_layers: &num_layers 2
+hidden_size: &hidden_size 128
+embedding_size: &embedding_size 768 #should macch the embedding model
+latent_size: &latent_size 64
+dropout: &dropout  0.1
 embedding_model_name: bert-base-uncased
 
-encoder:
-    bidirectional_encoder: False
-    rnn_type : 2
-    num_layers: 2
-    rnn_hidden_dim: 64
-    dropout: 0.1
-    linear_dims: 64
-    embed_dim: 768
+vocab_size : &vocab_size 30522 #should macch the embedding model
+tie_embeddings: &tie_embeddings True
+word_dropout: &word_dropout 0.1
+embedding_dropout: &embedding_dropout 0.1
+max_sequence_length: &max_sequence_length 10
 
+encoder:
+    bidirectional: False
+    rnn_type : *rnn_type
+    num_layers: *num_layers
+    dropout: *dropout
+    hidden_size: *hidden_size
+    embedding_size: *embedding_size
+    latent_size: *latent_size
+
+                
 decoder:
-    bidirectional_encoder: False
-    rnn_type : 2
-    num_layers: 2
-    rnn_hidden_dim: 64
-    dropout: 0.1
-    linear_dims: 64
-    embed_dim: 768
-    tie_embeddings: True
-    vocab_size: 30522
+    bidirectional: False
+    rnn_type : *rnn_type
+    num_layers: *num_layers
+    dropout: *dropout
+    hidden_size: *hidden_size
+    embedding_size: *embedding_size
+    latent_size: *latent_size
+    tie_embeddings: *tie_embeddings
+    vocab_size: *vocab_size
+    word_dropout: *word_dropout
+    embedding_dropout: *embedding_dropout
+    max_sequence_length: *max_sequence_length
 
 
 

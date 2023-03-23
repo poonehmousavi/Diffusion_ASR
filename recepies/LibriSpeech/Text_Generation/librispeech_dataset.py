@@ -54,11 +54,11 @@ class LibriSpeechDataset(Dataset):
         # tokens_eos= [x['tokens_eos'] for x in batch]
         pad_value = self.tokenizer.pad_token_id
         
-        sig_lens = [len(x) for x in sig]
-        words_lens = [len(x) for x in words]
-        tokens_lens = [len(x) for x in tokens]
-        tokens_bos_lens = [len(x) for x in tokens_bos]
-        tokens_eos_lens = [len(x) for x in tokens_eos]
+        sig_lens = torch.LongTensor([len(x) for x in sig])
+        words_lens = torch.LongTensor([len(x) for x in words])
+        tokens_lens = torch.LongTensor([len(x) for x in tokens])
+        tokens_bos_lens = torch.LongTensor([len(x) for x in tokens_bos])
+        tokens_eos_lens = torch.LongTensor([len(x) for x in tokens_eos])
 
         tokens_padded = pad_sequence(tokens, batch_first=True, padding_value=pad_value)
         tokens_bos_padded = pad_sequence(tokens_bos, batch_first=True, padding_value=pad_value)

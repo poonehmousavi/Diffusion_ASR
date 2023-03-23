@@ -4,12 +4,10 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 import numpy as np
-import timeit
-import random
-import datetime
-from torch.utils.data import Dataset, DataLoader
+
 from librispeech_dataset import LibriSpeechDataset
-from lobes.RNN_AE import RNNEncoder,RNNDecoder,RNN_AE
+from lobes.RNN import RNNEncoder,RNNDecoder
+from lobes.AutoEnoder import RNN_AE
 import yaml
 import argparse
 import os
@@ -17,10 +15,10 @@ from tqdm import tqdm
 from transformers import BertModel, BertTokenizer
 from utils.helper import dotdict
 from transformers import DataCollatorWithPadding
+from torch.utils.data.sampler import SubsetRandomSampler
 
 
-
-
+overfitting_number= 100
 # importing module
 import logging
  
@@ -39,7 +37,7 @@ logger = logging.getLogger()
  
  
 
-def run(params_file, device):
+def run(params_file, device,overfitting_test=False):
     hparams={}
     logger.info("Start loading parameters file")
     with open(params_file, 'r') as file:
@@ -64,15 +62,21 @@ def run(params_file, device):
     #  Loading  Tokenizer and embedding model
     cache_dir= os.path.join(cexperiment_directory, 'save')
     tokenizer = BertTokenizer.from_pretrained(hparams['embedding_model_name'],cache_dir=cache_dir)
+    special_tokens= {'sos_idx':tokenizer.cls_token_id, 'eos_idx':tokenizer.sep_token_id, 'pad_idx':tokenizer.pad_token_id, 'unk_idx':tokenizer.unk_token_id}
     embedding_model = BertModel.from_pretrained(hparams['embedding_model_name'],cache_dir=cache_dir)
-    encoder_model= RNNEncoder(device, dotdict(hparams.encoder),embedding_model)
-    decoder_model= RNNDecoder(device, dotdict(hparams.decoder),embedding_model)
+    
+    encoder_model= RNNEncoder(device=device,embedding=embedding_model,**hparams.encoder)
+    decoder_model= RNNDecoder(device=device,embedding= embedding_model,**special_tokens,  **hparams.decoder)
     model= RNN_AE(encoder_model,decoder_model)
 
 
     train_set = LibriSpeechDataset(csv_file=os.path.join(cexperiment_directory, hparams['train_csv']), root_dir=hparams['data_folder'],tokenizer=tokenizer)
     hparams["train_loader_kwargs"]["collate_fn"] = train_set.collate_fn
+    if overfitting_test:
+        train_set = torch.utils.data.random_split(train_set, [overfitting_number, len(train_set)-overfitting_number])[0]
     train_loader = torch.utils.data.DataLoader(train_set, **hparams['train_loader_kwargs'])
+
+
     
     valid_set = LibriSpeechDataset(csv_file=os.path.join(cexperiment_directory, hparams['valid_csv']), root_dir=hparams['data_folder'],tokenizer=tokenizer)
     hparams["valid_loader_kwargs"]["collate_fn"] = valid_set.collate_fn
@@ -83,30 +87,40 @@ def run(params_file, device):
     test_loader = torch.utils.data.DataLoader(test_set, **hparams['test_loader_kwargs'])
 
     
-    loss_module = nn.BCEWithLogitsLoss()
-    optimizer = torch.optim.SGD(model.parameters(), lr=hparams['lr'])
-
-    fit(model,optimizer,train_loader,valid_loader,loss_module, hparams['number_of_epochs'],device)
+    loss_module = torch.nn.NLLLoss(ignore_index=special_tokens['pad_idx'], reduction='mean')
+    # optimizer = torch.optim.SGD(model.parameters(), lr=hparams['lr'])
+    optimizer = torch.optim.Adam(model.parameters(), lr=hparams['lr'])
+    fit(model,optimizer,train_loader,valid_loader,loss_module, hparams['number_of_epochs'], hparams.print_every,device=device)
 
 
 # def get_emebbding():
 
-def fit(model, optimizer, train_loader, valid_loader, loss_module, num_epochs,device='cuda'):
-    # Set model to train mode
+def fit(model, optimizer, train_loader, valid_loader, loss_module, num_epochs,print_every, device='cuda'):
    
-    
+    model =model.to(device)
     # Training loop
     for epoch in tqdm(range(num_epochs)):
+        # Set model to train mode
         model.train() 
-        for i,batch in enumerate(train_loader):
-            train_batch(model, batch, device,loss_module,optimizer)
+        losses=[]
+        for iteration,batch in enumerate(tqdm(train_loader)):
+            model, loss=train_batch(model, batch, device,loss_module,optimizer)
+            losses.append(loss.item())
+            if iteration % print_every == 0 or iteration+1 == len(train_loader):
+                    logger.info("Training Batch %04d/%i, Loss %9.4f"
+                          % (iteration, len(train_loader)-1, loss.item()))
+        avg_loss= np.mean(losses)
+        # logger.info(f"Loss for epoch {epoch}: {avg_loss}")
+        logger.info("Training Epoch %02d/%i, Mean ELBO %9.4f" % (epoch, num_epochs, avg_loss))
+
             
-        model.eval()
-        for i,batch in enumerate(valid_loader):
-            eval_batch(model, batch, device)
+        # model.eval()
+        # for i,batch in enumerate(valid_loader):
+        #     eval_batch(model, batch, device)
 
 def train_batch(model, batch, device,loss_module,optimizer):
     batch= dotdict(batch)
+    
           
     ## Step 1: Move input data to device (only strictly necessary if we use GPU)
     tokens, tokens_lens = batch.tokens
@@ -115,12 +129,16 @@ def train_batch(model, batch, device,loss_module,optimizer):
     tokens,tokens_bos,tokens_eos= tokens.to(device),tokens_bos.to(device),tokens_eos.to(device)
             
     ## Step 2: Run the model on the input data
-    preds = model(tokens,tokens_bos)
+    preds = model(tokens,tokens_bos,tokens_lens, tokens_bos_lens)
     preds = preds.squeeze(dim=1) # Output is [Batch size, 1], but we want [Batch size]
             
     ## Step 3: Calculate the loss
-    loss = loss_module(preds, tokens_eos)
+    logp= nn.functional.log_softmax(preds, dim=-1)
+    logp = logp.view(-1, logp.size(2))
             
+    target = tokens_eos[:, :torch.max(tokens_eos_lens).item()].contiguous().view(-1)
+    loss = loss_module(logp, target)
+    
     ## Step 4: Perform backpropagation
     # Before calculating the gradients, we need to ensure that they are all zero. 
     # The gradients would not be overwritten, but actually added to the existing ones.
@@ -131,7 +149,8 @@ def train_batch(model, batch, device,loss_module,optimizer):
     ## Step 5: Update the parameters
     optimizer.step()
 
-    return model
+    return model,loss
+
 def eval_batch(model, batch, device,loss_module):
     batch= dotdict(batch)
           
@@ -172,7 +191,8 @@ if __name__ == "__main__":
         "params",
         help='path to params file',
     )
+    parser.add_argument("--overfitting",action='store_true', help="in overfitting test mode")
 
     args = parser.parse_args()
     run(
-        args.params, 'cuda')
+        args.params, 'cuda', args.overfitting)
