@@ -1,0 +1,86 @@
+seed: &seed 185
+
+# Data Setting
+data_folder:  ./data_dir
+output_folder:  ./results/rnn_vae/
+
+train_batch_size : &train_batch_size 16
+valid_batch_size : &valid_batch_size 8
+test_batch_size : &test_batch_size 8
+
+train_csv:  train-clean-100.csv
+valid_csv:  dev-clean.csv
+test_csv:  test-clean.csv
+
+train_loader_kwargs:
+    batch_size: *train_batch_size
+    shuffle: True,
+    num_workers: 6
+
+valid_loader_kwargs:
+    batch_size: *valid_batch_size
+    shuffle: False,
+    num_workers: 6
+
+test_loader_kwargs:
+    batch_size: *test_batch_size
+    shuffle: False,
+    num_workers: 6
+
+
+anneal_function: logistic
+k: 0.0025
+x0: 2500
+
+
+number_of_epochs: 4
+lr: 0.01
+print_every: 100
+# Model Parameters
+rnn_type: &rnn_type gru
+num_layers: &num_layers 2
+hidden_size: &hidden_size 128
+embedding_size: &embedding_size 768 #should macch the embedding model
+latent_size: &latent_size 64
+dropout: &dropout  0.1
+embedding_model_name: bert-base-uncased
+
+vocab_size : &vocab_size 30522 #should macch the embedding model
+tie_embeddings: &tie_embeddings False
+word_dropout: &word_dropout 0.1
+embedding_dropout: &embedding_dropout 0.1
+max_sequence_length: &max_sequence_length 50
+
+encoder:
+    bidirectional: False
+    rnn_type : *rnn_type
+    num_layers: *num_layers
+    dropout: *dropout
+    hidden_size: *hidden_size
+    embedding_size: *embedding_size
+    latent_size: *latent_size
+
+                
+decoder:
+    bidirectional: False
+    rnn_type : *rnn_type
+    num_layers: *num_layers
+    dropout: *dropout
+    hidden_size: *hidden_size
+    embedding_size: *embedding_size
+    latent_size: *latent_size
+    tie_embeddings: *tie_embeddings
+    vocab_size: *vocab_size
+    word_dropout: *word_dropout
+    embedding_dropout: *embedding_dropout
+    max_sequence_length: *max_sequence_length
+
+
+train_logs: train_log.txt
+valid_wer: valid_wer.txt
+test_wer: test_wer.txt
+
+
+
+
+

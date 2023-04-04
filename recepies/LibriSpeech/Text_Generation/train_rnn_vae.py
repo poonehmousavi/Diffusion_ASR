@@ -7,7 +7,7 @@ import numpy as np
 
 from librispeech_dataset import LibriSpeechDataset
 from lobes.RNN import RNNEncoder,RNNDecoder
-from lobes.AutoEnoder import RNN_AE
+from lobes.AutoEnoder import RNN_VAE
 import yaml
 import argparse
 import os
@@ -41,6 +41,28 @@ logger = logging.getLogger()
 best_epoch=0
 
 
+def loss_fn(logp, target, length, mean, logv, anneal_function, step, k, x0, loss_module):
+
+        # cut-off unnecessary padding from target, and flatten
+        target = target[:, :torch.max(length).item()].contiguous().view(-1)
+        logp = logp.view(-1, logp.size(2))
+
+        # Negative Log Likelihood
+        NLL_loss = loss_module(logp, target)
+
+        # KL Divergence
+        KL_loss = -0.5 * torch.sum(1 + logv - mean.pow(2) - logv.exp())
+        KL_weight = kl_anneal_function(anneal_function, step, k, x0)
+
+        return NLL_loss, KL_loss, KL_weight
+
+def kl_anneal_function(anneal_function, step, k, x0):
+    if anneal_function == 'logistic':
+        return float(1/(1+np.exp(-k*(step-x0))))
+    elif anneal_function == 'linear':
+        return min(1, step/x0)
+
+
 def run(params_file, device,overfitting_test=False):
     hparams={}
     logger.info("Start loading parameters file")
@@ -68,10 +90,10 @@ def run(params_file, device,overfitting_test=False):
     tokenizer = BertTokenizer.from_pretrained(hparams['embedding_model_name'],cache_dir=cache_dir)
     special_tokens= {'sos_idx':tokenizer.cls_token_id, 'eos_idx':tokenizer.sep_token_id, 'pad_idx':tokenizer.pad_token_id, 'unk_idx':tokenizer.unk_token_id}
     embedding_model = BertModel.from_pretrained(hparams['embedding_model_name'],cache_dir=cache_dir)
-    
+    hparams.encoder['latent_size'] = 2*hparams.encoder['latent_size']
     encoder_model= RNNEncoder(device=device,embedding=embedding_model,**hparams.encoder)
     decoder_model= RNNDecoder(device=device,embedding= embedding_model,**special_tokens,  **hparams.decoder)
-    model= RNN_AE(encoder_model,decoder_model)
+    model= RNN_VAE(encoder_model,decoder_model)
 
 
     train_set = LibriSpeechDataset(csv_file=os.path.join(hparams['data_folder'], hparams['train_csv']), root_dir=hparams['data_folder'],tokenizer=tokenizer)
@@ -95,53 +117,68 @@ def run(params_file, device,overfitting_test=False):
     test_loader = torch.utils.data.DataLoader(test_set, pin_memory=True,**hparams['test_loader_kwargs'])
 
     
-    loss_module = torch.nn.NLLLoss(ignore_index=special_tokens['pad_idx'], reduction='mean')
+    loss_module = torch.nn.NLLLoss(ignore_index=special_tokens['pad_idx'], reduction='sum')
     # optimizer = torch.optim.SGD(model.parameters(), lr=hparams['lr'])
     optimizer = torch.optim.Adam(model.parameters(), lr=hparams['lr'])
-    fit(model,optimizer,train_loader,valid_loader,loss_module, hparams,tokenizer,device=device)
-    model= RNN_AE(encoder_model,decoder_model)
+    model, step= fit(model,optimizer,train_loader,valid_loader,loss_module, hparams,tokenizer,device=device)
+
     logger.info("Loading best model from save checkpoint")
     model = load_model(os.path.join(hparams['output_folder'],str(seed),'save','model.ckp'),model)
-    eval(model ,test_loader, loss_module ,hparams,tokenizer, device)
+    eval(model ,test_loader, loss_module ,hparams,tokenizer, step,device)
     # eval(model ,valid_loader, loss_module ,hparams, tokenizer, device)
 
 # def get_emebbding():
 
 def fit(model, optimizer, train_loader, valid_loader, loss_module, hparams,tokenizer, device='cuda'):
     best_wer = float('inf')
+   
     create_experiment_directory(os.path.join(hparams['output_folder'],str(hparams.seed),'save'))
     model =model.to(device)
+    step = 0
     # Training loop
     for epoch in tqdm(range(hparams['number_of_epochs'])):
         # Set model to train mode
        
         tr_losses=[]
+        NLL_losses=[]
+        KL_losses=[]
         for iteration,batch in enumerate(tqdm(train_loader)):
-            model, loss=train_batch(model, batch, device,loss_module,optimizer)
-            tr_losses.append(loss.item())
+            model,loss, NLL_loss, KL_loss, KL_weight =train_batch(model, batch, device,loss_module,optimizer,step,hparams)
+            
+            tr_losses.append(loss)
+            NLL_losses.append(NLL_loss)
+            KL_losses.append(KL_loss)
+
             if iteration % hparams['print_every'] == 0 or iteration+1 == len(train_loader):
-                    logger.info("Training Batch %04d/%i, Loss %9.4f"
-                          % (iteration, len(train_loader)-1, loss.item()))
-        logger.info("Training Epoch %02d/%i, ,Mean NLL Loss %9.4f" % (epoch, hparams['number_of_epochs'], np.mean(tr_losses)))
+                    logger.info("Training Batch %04d/%i, ELBO Loss %9.4f , NLL-Loss %9.4f, KL-Loss %9.4f, KL-Weight %6.3f"
+                          % (iteration, len(train_loader)-1, loss,NLL_loss, KL_loss, KL_weight))
+            step += 1
+        logger.info("Training Epoch %02d/%i, ELBO Loss %9.4f , NLL-Loss %9.4f, KL-Loss %9.4f" % (epoch, hparams['number_of_epochs'], np.mean(tr_losses),np.mean(NLL_losses),np.mean(KL_losses)))
         
             
         valid_losses=[]
+        valid_NLL_losses=[]
+        valid_KL_losses=[]
         references=[]
         hypothesises=[]
         for iteration,batch in enumerate(tqdm(valid_loader)):
-            model, loss, hypothesis,reference= eval_batch(model, batch, device, loss_module,tokenizer)
-            valid_losses.append(loss.item())
+            model, loss, NLL_loss, KL_loss, KL_weight, hypothesis,reference= eval_batch(model, batch, device, loss_module,tokenizer,step,hparams)
+            valid_losses.append(loss)
+            valid_NLL_losses.append(NLL_loss)
+            valid_KL_losses.append(KL_loss)
+
             hypothesises.extend(hypothesis)
             references.extend(reference)
+           
 
         wer_score = wer(references,hypothesises)*100
         cer_score= cer(references,hypothesises)*100
-        logger.info("Valid Epoch %02d/%i,Mean NLL Loss %9.4f, Valid WER  %9.4f, Valid CER %9.4f" % (epoch, hparams['number_of_epochs'], np.mean(valid_losses),wer_score,cer_score))
+        logger.info("Valid Epoch %02d/%i, ELBO Loss %9.4f , NLL-Loss %9.4f, KL-Loss %9.4f, Valid WER  %9.4f, Valid CER %9.4f" % (epoch, hparams['number_of_epochs'], np.mean(valid_losses),np.mean(valid_NLL_losses),np.mean(valid_KL_losses),wer_score,cer_score))
         
         # save loss stats
-        log_file = open(os.path.join(hparams['output_folder'],hparams['train_logs']), "a")
+        log_file = open(os.path.join(hparams['output_folder'],str(hparams.seed),hparams['train_logs']), "a")
         # json.dump({'Epoch':epoch, 'train loss': np.mean(tr_losses), 'valid loss':np.mean(valid_losses), 'valid WER': wer_score , 'valid_cer': cer_score}, log_file, indent = 6)
-        log_file.write(f"Epoch: {epoch}, train loss: {np.mean(tr_losses)}, valid loss: {np.mean(valid_losses)}, valid WER: {wer_score} , valid_cer: {cer_score}\n")
+        log_file.write(f"Epoch: {epoch}, train loss: {np.mean(tr_losses)}, train_NLL: {np.mean(NLL_losses)}, train_KL: {np.mean(KL_losses)}, valid loss: {np.mean(valid_losses)}, valid NLL: {np.mean(valid_NLL_losses)}, Valid KL: {np.mean(valid_KL_losses)},  valid WER: {wer_score} , valid_cer: {cer_score}\n")
         log_file.close()
         
         # save best model based on WER
@@ -153,29 +190,41 @@ def fit(model, optimizer, train_loader, valid_loader, loss_module, hparams,token
             save_model(os.path.join(hparams['output_folder'],str(hparams.seed),'save','model.ckp'),model)
             save_model(os.path.join(hparams['output_folder'],str(hparams.seed),'save','encoder.ckp'),model.encoder)
             save_model(os.path.join(hparams['output_folder'],str(hparams.seed),'save','decoder.ckp'),model.decoder)
+    
+    return model,step
 
 
 
-def eval(model ,test_loader, loss_module ,hparams,tokenizer, device='cuda'):
+@torch.no_grad()
+def eval(model ,test_loader, loss_module ,hparams,tokenizer, step, device='cuda'):
    
     model =model.to(device)
             
-    test_losses=[]
+    losses=[]
+    NLL_losses=[]
+    KL_losses=[]
     references=[]
     hypothesises=[]
     for iteration,batch in enumerate(tqdm(test_loader)):
-        model, loss, hypothesis,reference= eval_batch(model, batch, device, loss_module,tokenizer)
-        test_losses.append(loss.item())
+        model, loss, NLL_loss, KL_loss, KL_weight, hypothesis,reference= eval_batch(model, batch, device, loss_module,tokenizer,step,hparams)
+        losses.append(loss)
+        NLL_losses.append(NLL_loss)
+        KL_losses.append(KL_loss)
+
         hypothesises.extend(hypothesis)
         references.extend(reference)
+           
 
-    logger.info("Test ,Mean NLL Loss %9.4f, WER  %9.4f" % ( np.mean(test_losses)*100,wer(references,hypothesises)*100))
-    # save loss stats
-    log_file = open(os.path.join(hparams['output_folder'],hparams['train_logs']), "a")
-    # json.dump({'Epoch loaded':best_epoch, 'test loss': np.mean(test_losses), 'test WER': wer(references,hypothesises)*100 , 'test_cer': cer(references,hypothesises)*100}, log_file, indent = 6)
-    log_file.write(f'Epoch loaded: {best_epoch}, test loss: {np.mean(test_losses)}, test WER: {wer(references,hypothesises)*100} , test_cer: {cer(references,hypothesises)*100}')
-
-    log_file.close()
+        wer_score = wer(references,hypothesises)*100
+        cer_score= cer(references,hypothesises)*100
+        logger.info("Test, ELBO Loss %9.4f , NLL-Loss %9.4f, KL-Loss %9.4f, Test WER  %9.4f, Test CER %9.4f" % (np.mean(losses),np.mean(NLL_losses),np.mean(KL_losses),wer_score,cer_score))
+        
+        # save loss stats
+        log_file = open(os.path.join(hparams['output_folder'],str(hparams.seed),hparams['train_logs']), "a")
+        # json.dump({'Epoch':epoch, 'train loss': np.mean(tr_losses), 'valid loss':np.mean(valid_losses), 'valid WER': wer_score , 'valid_cer': cer_score}, log_file, indent = 6)
+        log_file.write(f"Test loss: {np.mean(losses)}, test NLL: {np.mean(NLL_losses)}, test KL: {np.mean(losses)},  test WER: {wer_score} , test CER: {cer_score}\n")
+        log_file.close()
+        
     
     wers=[wer(references[i],hypothesises[i])for i in range(len(references))]
     header = ['reference', 'predicted', 'wer']
@@ -187,7 +236,7 @@ def eval(model ,test_loader, loss_module ,hparams,tokenizer, device='cuda'):
 
 
 
-def train_batch(model, batch, device,loss_module,optimizer):
+def train_batch(model, batch, device,loss_module,optimizer,step,hparams):
     model.train() 
     batch= dotdict(batch)
     
@@ -199,15 +248,16 @@ def train_batch(model, batch, device,loss_module,optimizer):
     tokens,tokens_bos,tokens_eos= tokens.to(device),tokens_bos.to(device),tokens_eos.to(device)
             
     ## Step 2: Run the model on the input data
-    preds = model(tokens,tokens_bos,tokens_lens, tokens_bos_lens)
+    preds, mean, logv, z  = model(tokens,tokens_bos,tokens_lens, tokens_bos_lens)
     preds = preds.squeeze(dim=1) # Output is [Batch size, 1], but we want [Batch size]
             
     ## Step 3: Calculate the loss
     logp= nn.functional.log_softmax(preds, dim=-1)
-    logp = logp.view(-1, logp.size(2))
+    # loss calculation
+    NLL_loss, KL_loss, KL_weight = loss_fn(logp, tokens_eos,tokens_eos_lens, mean, logv, hparams.anneal_function, step, hparams.k, hparams.x0,loss_module)
+
+    loss = (NLL_loss + KL_weight * KL_loss) / tokens.shape[0]
             
-    target = tokens_eos[:, :torch.max(tokens_eos_lens).item()].contiguous().view(-1)
-    loss = loss_module(logp, target)
     
     ## Step 4: Perform backpropagation
     # Before calculating the gradients, we need to ensure that they are all zero. 
@@ -219,9 +269,10 @@ def train_batch(model, batch, device,loss_module,optimizer):
     ## Step 5: Update the parameters
     optimizer.step()
 
-    return model,loss
+    return model,loss.item(), NLL_loss.item()/ tokens.shape[0], KL_loss.item()/ tokens.shape[0], KL_weight
 
-def eval_batch(model, batch, device,loss_module,tokenizer):
+@torch.no_grad()
+def eval_batch(model, batch, device,loss_module,tokenizer,step,hparams):
     model.eval()
     batch= dotdict(batch)
     
@@ -233,16 +284,17 @@ def eval_batch(model, batch, device,loss_module,tokenizer):
     tokens,tokens_bos,tokens_eos= tokens.to(device),tokens_bos.to(device),tokens_eos.to(device)
             
     ## Step 2: Run the model on the input data
-    preds = model(tokens,tokens_bos,tokens_lens, tokens_bos_lens)
+    preds, mean, logv, z  = model(tokens,tokens_bos,tokens_lens, tokens_bos_lens)
     preds = preds.squeeze(dim=1) # Output is [Batch size, 1], but we want [Batch size]
             
     ## Step 3: Calculate the loss
     logp= nn.functional.log_softmax(preds, dim=-1)
-    logp = logp.view(-1, logp.size(2))
-            
-    target = tokens_eos[:, :torch.max(tokens_eos_lens).item()].contiguous().view(-1)
-    loss = loss_module(logp, target)
 
+    # loss calculation
+    NLL_loss, KL_loss, KL_weight = loss_fn(logp, tokens_eos,tokens_eos_lens, mean, logv, hparams.anneal_function, step, hparams.k, hparams.x0,loss_module)
+
+    loss = (NLL_loss + KL_weight * KL_loss) / tokens.shape[0]
+            
     hyp = model.generate(tokens,tokens_lens)
    
     # target_tokens=[]
@@ -257,7 +309,7 @@ def eval_batch(model, batch, device,loss_module,tokenizer):
 
 
     
-    return model,loss,hypothesis,reference
+    return model,loss.item(), NLL_loss.item()/ tokens.shape[0], KL_loss.item()/ tokens.shape[0], KL_weight ,hypothesis,reference
 
 
     

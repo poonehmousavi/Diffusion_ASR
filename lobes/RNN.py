@@ -96,13 +96,6 @@ class RNNEncoder(nn.Module):
                 m.bias.data.fill_(0.01)
     
     
-    # def init_hidden(self, batch_size,):
-    #     if self.params.rnn_type == RnnType.GRU:
-    #         return torch.zeros(self.params.num_layers * self.num_directions, batch_size, self.params.rnn_hidden_dim).to(self.device)
-    #     elif self.params.rnn_type == RnnType.LSTM:
-    #         return (torch.zeros(self.params.num_layers * self.num_directions, batch_size, self.params.rnn_hidden_dim).to(self.device),
-    #                 torch.zeros(self.params.num_layers * self.num_directions, batch_size, self.params.rnn_hidden_dim).to(self.device))
-    
     def forward(self, inputs,lengths=None):
 
         # Flatten params for data parallel
@@ -128,12 +121,8 @@ class RNNEncoder(nn.Module):
 
     
     def _flatten(self, h, batch_size):
-        # (num_layers*num_directions, batch_size, hidden_dim)  ==>
-        # (batch_size, num_directions*num_layers, hidden_dim)  ==>
-        # (batch_size, num_directions*num_layers*hidden_dim)
         return h.transpose(0,1).contiguous().view(batch_size, -1)
     
-
 
     def _flatten_hidden(self, hidden, batch_size):
         if self.bidirectional or self.num_layers > 1:
@@ -147,13 +136,7 @@ class RNNEncoder(nn.Module):
             else:
                 hidden = hidden.squeeze()   
         return hidden
-        # if h is None:
-        #     return None
-        # elif isinstance(h, tuple): # LSTM
-        #     X = torch.cat([self._flatten(h[0], batch_size), self._flatten(h[1], batch_size)], 1)
-        # else: # GRU
-        #     X = self._flatten(h, batch_size)
-        # return X
+
 
 
 class RNNDecoder(nn.Module):
@@ -258,60 +241,102 @@ class RNNDecoder(nn.Module):
             outputs = pad_packed_sequence(outputs)
         
         if self.tie_embeddings:
-            outputs = self.outputs2vocab(self.hidden_to_embed(outputs.squeeze(dim=1)))
+            logits = self.outputs2vocab(self.hidden_to_embed(outputs.squeeze(dim=1)))
         else:
             #output = F.log_softmax(self.out(self.last_dropout(output.squeeze(dim=1))), dim=1)
-            outputs = self.outputs2vocab(outputs.squeeze(dim=1))
+            logits = outputs = self.outputs2vocab(outputs.squeeze(dim=1))
 
-        return outputs
-        
-        # "Expand" z vector
-        #X = self.z_to_hidden(z)
-        
-        # Unflatten hidden state for GRU or LSTM
-        # hidden = self._unflatten_hidden(X, batch_size)
-        # hidden = self._unflatten_hidden(X, batch_size)
-        # Restructure shape of hidden state to accommodate bidirectional encoder (decoder is unidirectional)
-        # hidden = self._init_hidden_state(z)
-        # # Create SOS token tensor as first input for decoder
-        # # input = torch.LongTensor([[Token.SOS]] * batch_size).to(self.device)
-        # input= inputs[:,0].unsqueeze(1)
-        # # Decide whether to do teacher forcing or not
-        # # use_teacher_forcing = random.random() < self.params.teacher_forcing_prob
-        # use_teacher_forcing = self.training
-        # # Initiliaze loss
-        # loss = 0
-        # outputs = torch.zeros((batch_size, num_steps), dtype=torch.long).to(self.device)
-        # if use_teacher_forcing:
-        #     x  = self.embedding(inputs).last_hidden_state
-        #     if lengths is not None:
-        #         x = pack_padded_sequence(x, lengths)
-        #         # Push through RNN layer (the ouput is irrelevant)
-        #         # Push through RNN layer (the ouput is irrelevant)
-        #     outputs, _ = self.rnn(x, hidden)
-        #     if lengths is not None:
-        #         outputs = pad_packed_sequence(outputs)
-        #         # Unpack the packed sequence
-            # for i in range(num_steps):
-            #     output, hidden = self._step(input, hidden)
-            #     topv, topi = output.topk(1)
-            #     outputs[:,i] = topi.detach().squeeze()
-            #     #print(output[0], inputs[:, i][0])
-            #     # loss += self.criterion(output, inputs[:, i])
-            #     input = inputs[:, i].unsqueeze(dim=1)
-        # else:
-        #     for i in range(num_steps):
-        #         output, hidden = self._step(input, hidden)
-        #         log_output = F.log_softmax(output)
-        #         topv, topi = log_output.topk(1)
-        #         input = topi.detach()
-        #         outputs[:, i] = topi.detach().squeeze()
-        #         #print(topi[0], inputs[:, i][0])
-        #         # loss += self.criterion(output, inputs[:, i])
-        #         if input[0].item() == Token.EOS:
-                    # break
+        return logits
+    
 
-        
+    def inference(self, n=4, z=None):
+
+        if z is None:
+            batch_size = n
+            z = (torch.randn([batch_size, self.latent_size])).to(self.device)
+        else:
+            batch_size = z.size(0)
+
+        hidden = self.latent2hidden(z)
+
+        hidden = self._unflatten_hidden(hidden, batch_size)
+
+        # if self.bidirectional or self.num_layers > 1:
+        #     # unflatten hidden state
+        #     hidden = hidden.view(self.hidden_factor, batch_size, self.hidden_size)
+
+        # hidden = hidden.unsqueeze(0)
+
+        # required for dynamic stopping of sentence generation
+        sequence_idx = torch.arange(0, batch_size, out=torch.LongTensor()).to(self.device)  # all idx of batch
+        # all idx of batch which are still generating
+        sequence_running = torch.arange(0, batch_size, out=torch.LongTensor()).to(self.device)
+        sequence_mask = torch.ones(batch_size, out=torch.BoolTensor()).to(self.device)
+        # idx of still generating sequences with respect to current loop
+        running_seqs = torch.arange(0, batch_size, out=torch.LongTensor()).to(self.device)
+
+        generations = torch.LongTensor(batch_size, self.max_sequence_length).fill_(self.pad_idx).to(self.device)
+
+        t = 0
+        while t < self.max_sequence_length and len(running_seqs) > 0:
+
+            if t == 0:
+                input_sequence = (torch.Tensor(batch_size).fill_(self.sos_idx).long()).to(self.device)
+
+            input_sequence = input_sequence.unsqueeze(1)
+
+            input_embedding = self.embedding(input_sequence).last_hidden_state
+
+            output, hidden = self.rnn(input_embedding, hidden)
+
+            if self.tie_embeddings:
+                logits = self.outputs2vocab(self.hidden_to_embed(output.squeeze(dim=1)))
+            else:
+                 logits = self.outputs2vocab(output.squeeze(dim=1))
+            
+            prob = F.log_softmax(logits, dim=1)
+
+            input_sequence = self._sample(prob)
+
+            # save next input
+            generations = self._save_sample(generations, input_sequence, sequence_running, t)
+
+            # update gloabl running sequence
+            sequence_mask[sequence_running] = (input_sequence != self.eos_idx)
+            sequence_running = sequence_idx.masked_select(sequence_mask)
+
+            # update local running sequences
+            running_mask = (input_sequence != self.eos_idx).data
+            running_seqs = running_seqs.masked_select(running_mask)
+
+            # prune input and hidden state according to local update
+            if len(running_seqs) > 0:
+                input_sequence = input_sequence[running_seqs]
+                hidden = hidden[:, running_seqs]
+
+                running_seqs = torch.arange(0, len(running_seqs), out=torch.LongTensor()).to(self.device)
+
+            t += 1
+
+        return generations, z
+    
+    def _sample(self, dist, mode='greedy'):
+
+        if mode == 'greedy':
+            _, sample = torch.topk(dist, 1, dim=-1)
+        sample = sample.reshape(-1)
+
+        return sample
+    
+    def _save_sample(self, save_to, sample, running_seqs, t):
+        # select only still running
+        running_latest = save_to[running_seqs]
+        # update token at position t
+        running_latest[:,t] = sample.data
+        # save back
+        save_to[running_seqs] = running_latest
+
+        return save_to
 
     def _init_hidden_state(self, encoder_hidden):
         if encoder_hidden is None:
@@ -358,22 +383,12 @@ class RNNDecoder(nn.Module):
         else:
             if self.rnn_type =='lstm':
                 hidden_split = torch.split(hidden, int(hidden.shape[1]/2), dim=1)
-                hidden = (hidden_split[0].unsqueeze(0),hidden_split[1].unsqueeze(0)  )
+                hidden = (hidden_split[0].unsqueeze(0),hidden_split[1].unsqueeze(0))
             else:
-                hidden = hidden.unsqueeze(0)  
+                hidden = hidden.unsqueeze(0)
         return hidden
-        # if X is None:
-        #     return None
-        # elif self.params.rnn_type == RnnType.LSTM:  # LSTM
-        #     X_split = torch.split(X, int(X.shape[1]/2), dim=1)
-        #     h = (self._unflatten(X_split[0], batch_size), self._unflatten(X_split[1], batch_size))
-        # else:  # GRU
-        #     h = self._unflatten(X, batch_size)
-        # return h
+
 
     def _unflatten(self, X, batch_size):
-        # (batch_size, num_directions*num_layers*hidden_dim)    ==>
-        # (batch_size, num_directions * num_layers, hidden_dim) ==>
-        # (num_layers * num_directions, batch_size, hidden_dim) ==>
         return X.view(batch_size, self.params.num_layers * self.num_directions, self.params.rnn_hidden_dim).transpose(0, 1).contiguous()
 
