@@ -35,12 +35,16 @@ class LibriSpeechDataset(Dataset):
         # TODO: load audio for phase 2 (conditioning on audio) 
         sig = path
         words = self.data.iloc[idx, -1]
-        words = " ".join(words.split())
+        l= words.split()
+        if len(l) > 50:
+            l=l[:50]
 
-        tokens_list = self.tokenizer.encode(words)
-        tokens_bos = torch.LongTensor(tokens_list[:-1])
-        tokens_eos = torch.LongTensor(tokens_list[1:])
-        tokens = torch.LongTensor(tokens_list[1:-1])
+        words = " ".join(l)
+
+        tokens_list = self.tokenizer.encode(words,add_special_tokens=False)
+        tokens_bos = torch.LongTensor([self.tokenizer.bos_token_id]+tokens_list)
+        tokens_eos = torch.LongTensor(tokens_list+[self.tokenizer.eos_token_id])
+        tokens = torch.LongTensor(tokens_list)
 
 
         return  sig, words, tokens , tokens_bos, tokens_eos

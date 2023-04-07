@@ -44,7 +44,7 @@ def pad_packed_sequence(inputs):
 
 class RNNEncoder(nn.Module):
     def __init__(self, device, embedding, embedding_size, rnn_type, hidden_size, latent_size,
-                dropout, num_layers=1, bidirectional=False, ):
+                dropout, num_layers=1, bidirectional=False,freeze_embedding=True ):
         super(RNNEncoder, self).__init__()
         self.device = device
 
@@ -57,7 +57,7 @@ class RNNEncoder(nn.Module):
         self.hidden_size = hidden_size
         self.embedding_size = embedding_size
         self.dropout = dropout
-        
+        self.freeze_embedding= freeze_embedding
 
         if rnn_type == 'rnn':
             rnn = nn.RNN
@@ -69,9 +69,22 @@ class RNNEncoder(nn.Module):
             raise Exception("Unknown RNN type for encoder. Valid options: rnn, gru, lstm .")
         
         # Embedding layer
+        # self.embedding = embedding
+        # if self.freeze_embedding:
+        #     self.embedding.train()  # we keep it to train to have dropout and LN computed adequaly
+        #     for param in self.embedding.parameters():
+        #         param.requires_grad = False
+
         self.embedding = embedding
-        
+        # self.embedding.weight = embedding.transformer.wte.weight 
+        if self.freeze_embedding:
+            self.embedding.train()  # we keep it to train to have dropout and LN computed adequaly
+            for param in self.embedding.parameters():
+                param.requires_grad = False
+                
         self.hidden_factor = (2 if bidirectional else 1) * num_layers
+
+
         
         
         self.rnn = rnn( input_size=self.embedding_size,
@@ -104,11 +117,20 @@ class RNNEncoder(nn.Module):
         # inputs.shape = (batch_size, seq_len)
         batch_size, seq_len = inputs.shape
         # Push through embedding layer ==> X.shape = (batch_size, seq_len, embed_dim)
-        x = self.embedding(inputs).last_hidden_state
+        with torch.set_grad_enabled(not self.freeze_embedding):
+            # x  = self.embedding(inputs).last_hidden_state
+            x  = self.embedding(inputs)
+        
+        
+        # x =F.relu(self.l2(x))
+        # x = F.relu(self.l3(x))
+        # x = F.relu(self.l4(x))
+        # x = self.l5(x)
 
         # Pack sequence for proper RNN handling of padding
         if lengths is not None:
             x = pack_padded_sequence(x, lengths)
+
         # Push through RNN layer
         output ,h_n  = self.rnn(x)
         hidden = self._flatten_hidden(h_n, batch_size)
@@ -142,7 +164,7 @@ class RNNEncoder(nn.Module):
 class RNNDecoder(nn.Module):
     
     def __init__(self, device,vocab_size, embedding, embedding_size, rnn_type, hidden_size, word_dropout, embedding_dropout, latent_size,
-                sos_idx, eos_idx, pad_idx, unk_idx, dropout, max_sequence_length, num_layers=1, bidirectional=False,tie_embeddings=False ):
+                sos_idx, eos_idx, pad_idx, unk_idx, dropout, max_sequence_length, num_layers=1, bidirectional=False,tie_embeddings=False,freeze_embedding=True ):
         super(RNNDecoder, self).__init__()
         self.device = device
         self.max_sequence_length = max_sequence_length
@@ -160,7 +182,7 @@ class RNNDecoder(nn.Module):
         self.embedding_size = embedding_size
         self.dropout = dropout
         self.tie_embeddings = tie_embeddings
-        
+        self.freeze_embedding= freeze_embedding
 
         if rnn_type == 'rnn':
             rnn = nn.RNN
@@ -172,7 +194,20 @@ class RNNDecoder(nn.Module):
             raise Exception("Unknown RNN type for encoder. Valid options: rnn, gru, lstm .")
         
         # Embedding layer
+        # self.embedding = embedding
+        # if self.freeze_embedding:
+        #     self.embedding.train()  # we keep it to train to have dropout and LN computed adequaly
+        #     for param in self.embedding.parameters():
+        #         param.requires_grad = False
         self.embedding = embedding
+        # self.embedding.weight = embedding.transformer.wte.weight 
+        if self.freeze_embedding:
+            self.embedding.train()  # we keep it to train to have dropout and LN computed adequaly
+            for param in self.embedding.parameters():
+                param.requires_grad = False
+
+
+
         self.word_dropout_rate = word_dropout
         self.embedding_dropout = nn.Dropout(p=embedding_dropout)
         
@@ -187,6 +222,10 @@ class RNNDecoder(nn.Module):
                        batch_first=True)
         
         self.latent2hidden = nn.Linear(latent_size, hidden_size * self.hidden_factor)
+        # self.l2 = nn.Linear(hidden_size * self.hidden_factor, 128)
+        # self.l3 = nn.Linear(128, 256)
+        # self.l4 = nn.Linear(256, 512)
+        # self.l5 = nn.Linear(512, self.embedding_size)
     
         # If set, tie weights of output layer to weights of embedding layer
         if self.tie_embeddings:
@@ -195,9 +234,10 @@ class RNNDecoder(nn.Module):
             # Weight matrix of self.out has now the same dimension as embedding layer
             self.outputs2vocab = nn.Linear(self.embedding_size, vocab_size)
             # Set weights of output layer to embedding weights. Backprop seems to work quite fine with that.
-            self.outputs2vocab.weight.data = self.embedding.embeddings.word_embeddings.weight
+            self.outputs2vocab.weight = self.embedding.weight
         else:
             self.outputs2vocab = nn.Linear(hidden_size * (2 if bidirectional else 1), vocab_size)
+
         
         self._init_weights()
 
@@ -229,8 +269,9 @@ class RNNDecoder(nn.Module):
             decoder_input_sequence[prob < self.word_dropout_rate] = self.unk_idx
         else:
             decoder_input_sequence= inputs
-
-        x  = self.embedding(decoder_input_sequence).last_hidden_state
+        with torch.set_grad_enabled(not self.freeze_embedding):
+            # x  = self.embedding(decoder_input_sequence).last_hidden_state
+            x  = self.embedding(decoder_input_sequence)
         x = self.embedding_dropout(x)
         if lengths is not None:
             x = pack_padded_sequence(x, lengths)
@@ -239,16 +280,21 @@ class RNNDecoder(nn.Module):
         
         if lengths is not None:
             outputs = pad_packed_sequence(outputs)
+        # outputs =F.relu(self.l2(outputs))
+        # outputs = F.relu(self.l3(outputs))
+        # outputs = F.relu(self.l4(outputs))
+        # outputs = self.l5(outputs)
         
         if self.tie_embeddings:
             logits = self.outputs2vocab(self.hidden_to_embed(outputs.squeeze(dim=1)))
         else:
             #output = F.log_softmax(self.out(self.last_dropout(output.squeeze(dim=1))), dim=1)
-            logits = outputs = self.outputs2vocab(outputs.squeeze(dim=1))
+            logits = self.outputs2vocab(outputs.squeeze(dim=1))
 
         return logits
     
 
+    @torch.no_grad()
     def inference(self, n=4, z=None):
 
         if z is None:
@@ -285,9 +331,14 @@ class RNNDecoder(nn.Module):
 
             input_sequence = input_sequence.unsqueeze(1)
 
-            input_embedding = self.embedding(input_sequence).last_hidden_state
-
+            # input_embedding = self.embedding(input_sequence).last_hidden_state
+            input_embedding = self.embedding(input_sequence)
             output, hidden = self.rnn(input_embedding, hidden)
+
+            # output = F.relu(self.l2(output))
+            # output =F.relu(self.l3(output))
+            # output = F.relu(self.l4(output))
+            # output = self.l5(output)
 
             if self.tie_embeddings:
                 logits = self.outputs2vocab(self.hidden_to_embed(output.squeeze(dim=1)))
@@ -320,6 +371,7 @@ class RNNDecoder(nn.Module):
 
         return generations, z
     
+    @torch.no_grad()
     def _sample(self, dist, mode='greedy'):
 
         if mode == 'greedy':
@@ -346,32 +398,6 @@ class RNNDecoder(nn.Module):
         else: # GRU
             return self._concat_directions(encoder_hidden)
 
-    def _concat_directions(self, hidden):
-        # hidden.shape = (num_layers * num_directions, batch_size, hidden_dim)
-        #print(hidden.shape, hidden[0:hidden.size(0):2].shape)
-        if self.params.bidirectional_encoder:
-            hidden = torch.cat([hidden[0:hidden.size(0):2], hidden[1:hidden.size(0):2]], 2)
-            # Alternative approach (same output but easier to understand)
-            #h = hidden.view(self.params.num_layers, self.num_directions, hidden.size(1), self.params.rnn_hidden_dim)
-            #h_fwd = h[:, 0, :, :]
-            #h_bwd = h[:, 1, :, :]
-            #hidden = torch.cat([h_fwd, h_bwd], 2)
-        return hidden
-
-    def _step(self, input, hidden):
-        # Get embedding of current input word:
-        X = self.embedding(input).last_hidden_state
-        # Push input word through rnn layer with current hidden state
-        output, hidden = self.rnn(X, hidden)
-        # Push output through linear layer to get to vocab_size
-
-        if self.params.tie_embeddings == True:
-            output = self.out(self.hidden_to_embed(output.squeeze(dim=1)))
-        else:
-            #output = F.log_softmax(self.out(self.last_dropout(output.squeeze(dim=1))), dim=1)
-            output = self.out(output.squeeze(dim=1))
-        # return the output (batch_size, vocab_size) and new hidden state
-        return output, hidden
 
     def _unflatten_hidden(self, hidden, batch_size):
         if self.bidirectional or self.num_layers > 1:
