@@ -16,7 +16,6 @@ class RNNEncoder(nn.Module):
         self.num_layers = num_layers 
         self.bidirectional =bidirectional
         self.dropout = dropout
-        self.embedding_weights = embedding_weights
         self.hidden_mode = hidden_mode
 
         self.embedding = nn.Embedding(self.vocab_size, self.embedding_size)
@@ -27,7 +26,7 @@ class RNNEncoder(nn.Module):
         self.fc_mu = nn.Linear(in_features=self.hidden_size * self.hidden_factor, out_features=self.latent_size)
         self.fc_logvar = nn.Linear(in_features=self.hidden_size*self.hidden_factor, out_features=self.latent_size)
 
-        self._init_weights(self.embedding_weights)
+        self._init_weights(embedding_weights)
             
     def _init_weights(self,emb_weights):
       for m in self.modules():
@@ -71,7 +70,6 @@ class RNNDecoder(nn.Module):
         self.num_layers = num_layers 
         self.bidirectional =bidirectional
         self.dropout =dropout
-        self.embedding_weights = embedding_weights
         self.tie_embedding= tie_embedding
         self.word_dropout_rate = word_dropout_rate
         self.bos_token_id = bos_token_id
@@ -89,7 +87,7 @@ class RNNDecoder(nn.Module):
            self.hidden2emb = nn.Linear(self.hidden_size * (2 if self.bidirectional else 1), self.embedding_size)
            self.outputs2vocab = nn.Linear(self.embedding_size, self.vocab_size)
         
-        self._init_weights(self.embedding_weights)
+        self._init_weights(embedding_weights)
            
         
     def _init_weights(self,emb_weights):
@@ -102,7 +100,7 @@ class RNNDecoder(nn.Module):
         elif isinstance(m, nn.Linear):
             torch.nn.init.xavier_uniform_(m.weight)
             m.bias.data.fill_(0.01)
-      if self.tie_embedding: 
+      if self.tie_embedding and  not (emb_weights is None): 
          self.outputs2vocab.weight = emb_weights
            
     

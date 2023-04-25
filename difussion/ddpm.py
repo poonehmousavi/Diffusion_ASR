@@ -34,11 +34,14 @@ class Diffusion:
     def sample_timesteps(self, n):
         return torch.randint(low=1, high=self.noise_steps, size=(n,))
 
-    def sample(self, model, sample_size=8, seq_length=20):
-        logging.info(f"Sampling {sample_size} new embedding....")
+    def sample(self, model, sample_size=8, seq_length=20,x =None):
         model.eval()
         with torch.no_grad():
-            x = torch.randn((sample_size, seq_length, self.embedding_size)).to(self.device)
+            if x is None:
+                logging.info(f"Sampling {sample_size} new embedding....")
+                x = torch.randn((sample_size, seq_length, self.embedding_size)).to(self.device)
+            else:
+                sample_size, seq_length ,_ = x.shape
             for i in tqdm(reversed(range(1, self.noise_steps)), position=0):
                 t = (torch.ones(sample_size) * i).long().to(self.device)
                 predicted_noise = model(x, t)
@@ -50,8 +53,14 @@ class Diffusion:
                 else:
                     noise = torch.zeros_like(x)
                 x = 1 / torch.sqrt(alpha) * (x - ((1 - alpha) / (torch.sqrt(1 - alpha_hat))) * predicted_noise) + torch.sqrt(beta) * noise
-        model.train()
         return x
+
+def get_denoised_embedding(self, nosiy_latent, t, predicted_noise):
+    alpha = self.alpha[t][:, None, None]
+    alpha_hat = self.alpha_hat[t][:, None, None]
+    beta = self.beta[t][:, None, None]
+    noise = torch.randn_like(nosiy_latent)
+    denoised_latent = 1 / torch.sqrt(alpha) * (nosiy_latent - ((1 - alpha) / (torch.sqrt(1 - alpha_hat))) * predicted_noise) + torch.sqrt(beta) * noise
 
 
 # def train(args):

@@ -47,7 +47,6 @@ class Transformer_Encoder(nn.Module):
         self.hidden_size = hidden_size
         self.num_layers = num_layers 
         self.dropout =dropout
-        self.embedding_weights= embedding_weights
         self.hidden_mode = hidden_mode
 
         self.embedding = nn.Embedding(self.vocab_size, self.embedding_size)
@@ -58,7 +57,7 @@ class Transformer_Encoder(nn.Module):
         self.fc_mu = nn.Linear(in_features=self.embedding_size , out_features=latent_size)
         self.fc_logvar = nn.Linear(in_features=self.embedding_size, out_features=latent_size)
 
-        self._init_weights(self.embedding_weights)
+        self._init_weights(embedding_weights)
             
     def _init_weights(self,emb_weights):
       for m in self.modules():
@@ -104,7 +103,6 @@ class Transformer_Decoder(nn.Module):
         self.latent_size = latent_size
         self.num_layers = num_layers 
         self.dropout =dropout
-        self.embedding_weights = embedding_weights
         self.tie_embedding= tie_embedding
         self.word_dropout_rate = word_dropout_rate
         self.bos_token_id = bos_token_id
@@ -120,7 +118,7 @@ class Transformer_Decoder(nn.Module):
         self.transformer_encoder = TransformerEncoder(encoder_layers, num_layers)
         self.outputs2vocab = nn.Linear(self.embedding_size, self.vocab_size)
 
-        self._init_weights(self.embedding_weights)
+        self._init_weights(embedding_weights)
         
     def _init_weights(self,emb_weights):
       for m in self.modules():
@@ -132,7 +130,7 @@ class Transformer_Decoder(nn.Module):
         elif isinstance(m, nn.Linear):
             torch.nn.init.xavier_uniform_(m.weight)
             m.bias.data.fill_(0.01)        
-      if self.tie_embedding: 
+      if self.tie_embedding and  not (emb_weights is None) : 
          self.outputs2vocab.weight = emb_weights    
   
     
@@ -218,7 +216,6 @@ class AttentionTransformerDecoder(nn.Module):
         self.latent_size = latent_size
         self.num_layers = num_layers 
         self.dropout = dropout
-        self.embedding_weights = embedding_weights
         self.tie_embedding= tie_embedding
         self.word_dropout_rate = word_dropout_rate
         self.bos_token_id = bos_token_id
@@ -235,7 +232,7 @@ class AttentionTransformerDecoder(nn.Module):
         self.outputs2vocab = nn.Linear(self.embedding_size, self.vocab_size)
         self.tanh = nn.Tanh()
 
-        self._init_weights(self.embedding_weights)
+        self._init_weights(embedding_weights)
         
     def _init_weights(self,emb_weights):
       for m in self.modules():
@@ -247,7 +244,7 @@ class AttentionTransformerDecoder(nn.Module):
         elif isinstance(m, nn.Linear):
             torch.nn.init.xavier_uniform_(m.weight)
             m.bias.data.fill_(0.01)        
-      if self.tie_embedding: 
+      if self.tie_embedding and not (emb_weights is None): 
          self.outputs2vocab.weight = emb_weights      
   
     
@@ -326,5 +323,74 @@ class AttentionTransformerDecoder(nn.Module):
           
         generations = generations[:, 1 : num_gen_tokens + 1]
         return generations, z
-     
 
+class TimeEncoding(nn.Module):
+
+    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
+        super().__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        position = torch.arange(max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
+        pe = torch.zeros(max_len, 1, d_model)
+        pe[:, 0, 0::2] = torch.sin(position * div_term)
+        pe[:, 0, 1::2] = torch.cos(position * div_term)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x: Tensor, t: Tensor) -> Tensor:
+        """
+        Arguments:
+            x: Tensor, shape ``[batch_size,seq_len, embedding_dim]``
+            t: Tensor, shape ``[batch_size, time_step]``
+        """
+
+        t_embedding = self.pe[t].repeat(1, x.shape[1],1)
+        x = x + t_embedding
+        return self.dropout(x)
+
+
+class Transformer_Diffusion(nn.Module):
+    def __init__(self, embedding_dims,hidden_dim,num_layers,nhead,dropout =0.1,bidirectional =True):
+        super(Transformer_Diffusion, self).__init__()
+
+        self.embedding_dims = embedding_dims
+        self.hidden_dim = hidden_dim
+        self.num_layers = num_layers 
+        self.bidirectional =bidirectional
+        self.dropout =dropout
+  
+
+  
+        self.time_encoder = TimeEncoding(self.embedding_dims, self.dropout)
+        
+        decoder_layers = nn.TransformerEncoderLayer(self.embedding_dims, nhead, self.hidden_dim, dropout, batch_first=True)
+        self.transformer_encoder = TransformerEncoder(decoder_layers, num_layers)
+
+        decoder_layers = nn.TransformerDecoderLayer(self.embedding_dims, nhead, self.hidden_dim, dropout, batch_first=True)
+        self.transformer_decoder = TransformerDecoder(decoder_layers, num_layers)
+
+  
+    
+    def forward(self, tgt, t, memory=None, tgt_mask=None, memory_mask=None, tgt_key_padding_mask=None, memory_key_padding_mask=None):
+                
+        x = self.time_encoder(tgt, t)
+        
+        # if memory has value, it is a conditional diffusion
+        if not(memory is None): 
+            outputs = self.transformer_decoder(x, memory, tgt_mask, memory_mask, tgt_key_padding_mask, memory_key_padding_mask)
+        else:
+            outputs = self.transformer_encoder(x,mask=tgt_mask,src_key_padding_mask=tgt_key_padding_mask )
+
+        return outputs  
+
+if __name__ == '__main__':
+    device='cpu'
+    trs_net = Transformer_Diffusion(embedding_dims=768,hidden_dim=1024,num_layers=8,nhead=4,dropout =0.1,bidirectional =True).to(device)
+    print(sum([p.numel() for p in trs_net.parameters()]))
+    x = torch.randn(32, 15, 768).to(device)
+    t = x.new_tensor([500] * x.shape[0]).long().to(device)
+    print(trs_net(x, t).shape)
+
+    memo= torch.zeros(32, 7, 768).to(device)
+    memory_mask=(torch.ones((x.shape[1], memo.shape[1]), dtype=torch.bool)).to(device)
+    print(trs_net(x, t,memo,memory_mask=memory_mask).shape)

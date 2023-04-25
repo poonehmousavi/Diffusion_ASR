@@ -36,7 +36,7 @@ tokenizer:
 variational_beta : 1
 
 
-number_of_epochs: 1
+number_of_epochs: 5
 lr: 1e-3
 print_every: 100
 
