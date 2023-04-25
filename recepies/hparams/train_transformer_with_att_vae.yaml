@@ -1,0 +1,69 @@
+seed: &seed 185
+
+# Data Setting
+data_folder:  data_dir
+output_folder:  results/transformer_vae_with_att/
+hub_cache_dir: &hub_cache_dir cache_dir/
+
+train_batch_size : &train_batch_size 16
+valid_batch_size : &valid_batch_size 8
+test_batch_size : &test_batch_size 8
+
+train_csv:  train-clean-100.csv
+valid_csv:  dev-clean.csv
+test_csv:  test-clean.csv
+
+train_loader_kwargs:
+    batch_size: *train_batch_size
+    shuffle: True,
+    num_workers: 6
+
+valid_loader_kwargs:
+    batch_size: *valid_batch_size
+    shuffle: False,
+    num_workers: 6
+
+test_loader_kwargs:
+    batch_size: *test_batch_size
+    shuffle: False,
+    num_workers: 6
+
+tokenizer_type: gpt #gpt, char, bert
+tokenizer:
+    src: gpt2
+    cache_dir: *hub_cache_dir
+
+variational_beta : 1
+
+
+number_of_epochs: 1
+lr: 1e-3
+print_every: 100
+
+freeze_embedding: &freeze_embedding False
+
+model_type : transformer_with_attention  #rnn, transformer or transformer_with_attention
+decoder_search:  top_ksample_temp # top_ksample_temp, greedy
+
+model:
+    embedding_size: 768
+    hidden_size:  256
+    nhead: 4
+    dropout: 0.1
+    latent_size: 16
+    num_layers: 1
+    tie_embedding: True
+    word_dropout_rate : 0.5
+
+
+
+optimizer: adam # SGD , Adam
+
+train_logs: train_log.txt
+valid_wer: valid_wer.json
+test_wer: test_wer.json
+
+
+
+
+

@@ -3,9 +3,8 @@ Data preparation.
 
 Download: http://www.openslr.org/12
 
-Author
-------
-Mirco Ravanelli, Ju-Chieh Chou, Loren Lugosch 2020
+Adopted from SpeechBrain github repo:
+https://github.com/speechbrain/speechbrain/blob/develop/recipes/LibriSpeech/librispeech_prepare.py
 """
 
 import os
@@ -583,9 +582,9 @@ def load_pkl(file):
         return pickle.load(f)
 
 if __name__ == "__main__":
-    data_folder = 'LibriSpeech'
+    data_folder = 'data/LibriSpeech'
     tr_splits = ['train-clean-100']
     dev_splits = ['dev-clean']
     te_splits = ['test-clean']
-    save_folder = 'librispeech_prepared'
+    save_folder = 'data_dir'
     prepare_librispeech(data_folder, save_folder, tr_splits, dev_splits, te_splits)
