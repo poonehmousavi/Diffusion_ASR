@@ -8,6 +8,7 @@ import argparse
 from tqdm import tqdm
 from jiwer import wer,cer
 from functools import *
+import sys
 
 
 from data_utils.tokenizer import get_tokenizer
@@ -40,14 +41,14 @@ logger = logging.getLogger()
 best_epoch=0
 
 
-def run(params_file,data_root, overfitting_test,device):
+def run(params_file, overfitting_test,device, overrides):
     hparams={}
     logger.info("Start loading parameters file")
     with open(params_file, 'r') as file:
         config = yaml.safe_load(file)
 
     hparams= dotdict(config)
-
+    hparams= resolve_overrides_params(hparams,overrides)
     # setting seed 
     seed= hparams.seed
     torch.manual_seed(seed)
@@ -60,12 +61,6 @@ def run(params_file,data_root, overfitting_test,device):
     # We want to ensure that all operations are deterministic on GPU (if used) for reproducibility
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-
-    # append_root_folder to the data, cache and output folder
-    hparams['output_folder']=  os.path.join(data_root,hparams['output_folder'])
-    hparams['data_folder']=  os.path.join(data_root,hparams['data_folder'])
-    hparams['hub_cache_dir']=  os.path.join(data_root,hparams['hub_cache_dir'])
-
 
     cexperiment_directory = os.path.join(hparams['output_folder'], str(seed))
 
@@ -353,15 +348,11 @@ def eval_batch(model, batch,loss_module,hparams, tokenizer, device):
 
 
 if __name__ == "__main__":
+    arg_list = sys.argv[1:]
     parser = argparse.ArgumentParser(description="Run Text generation Experiment")
     parser.add_argument(
         "params",
         help='path to params file',
-    )
-    parser.add_argument(
-        "--root_folder",
-        help='root_folder',
-        required=True
     )
     parser.add_argument(
         "--device",
@@ -370,6 +361,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--overfitting",action='store_true', help="in overfitting test mode",default=False)
 
-    args = parser.parse_args()
+    # args = parser.parse_args()
+    run_opts, overrides = parser.parse_known_args(arg_list)
     run(
-        args.params, args.root_folder, args.overfitting, args.device)
+        run_opts.params, run_opts.overfitting, run_opts.device, overrides)

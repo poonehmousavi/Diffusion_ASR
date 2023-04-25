@@ -19,3 +19,16 @@ def save_model(model_file_name,model):
 def load_model(model_file_name,model):
     model.load_state_dict(torch.load(model_file_name))
     return model
+
+def resolve_overrides_params(hparam, overrides):
+    for item in overrides:
+        param,value= parse_override_arg(item)
+        if param in hparam.keys():
+            hparam[param] =type(hparam[param])(value)
+    return hparam
+   
+
+def parse_override_arg(argument):
+    param, value= argument.split("=")
+    param= param.split("--")[1]
+    return param, value

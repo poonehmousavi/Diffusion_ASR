@@ -7,6 +7,8 @@ import os
 import argparse
 from tqdm import tqdm
 import logging
+import sys
+
 
 from data_utils.tokenizer import get_tokenizer
 from data_utils.librispeech_dataset import LibriSpeechDataset
@@ -35,7 +37,7 @@ logging.basicConfig(
 logger = logging.getLogger()
  
 
-def run(params_file,data_root, overfitting_test,device):
+def run(params_file, overfitting_test,device,overrides):
     best_loss = float('inf')
     hparams={}
     logger.info("Start loading parameters file")
@@ -43,6 +45,7 @@ def run(params_file,data_root, overfitting_test,device):
         config = yaml.safe_load(file)
 
     hparams= dotdict(config)
+    hparams= resolve_overrides_params(hparams,overrides)
 
     # setting seed 
     seed= hparams.seed
@@ -56,11 +59,6 @@ def run(params_file,data_root, overfitting_test,device):
     # We want to ensure that all operations are deterministic on GPU (if used) for reproducibility
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-
-    # append_root_folder to the data, cache and output folder
-    hparams['output_folder']=  os.path.join(data_root,hparams['output_folder'])
-    hparams['data_folder']=  os.path.join(data_root,hparams['data_folder'])
-    hparams['hub_cache_dir']=  os.path.join(data_root,hparams['hub_cache_dir'])
 
 
     cexperiment_directory = os.path.join(hparams['output_folder'], str(seed))
@@ -300,15 +298,11 @@ def generate_txt(model,latent,tokenizer,hparams,device,input_ids=None):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run Text generation Experiment")
+    arg_list = sys.argv[1:]
+    parser = argparse.ArgumentParser(description="Run Diifussion for text generation Experiment")
     parser.add_argument(
         "params",
         help='path to params file',
-    )
-    parser.add_argument(
-        "--root_folder",
-        help='root_folder',
-        required=True
     )
     parser.add_argument(
         "--device",
@@ -317,6 +311,8 @@ if __name__ == "__main__":
     )
     parser.add_argument("--overfitting",action='store_true', help="in overfitting test mode",default=False)
 
-    args = parser.parse_args()
+    # args = parser.parse_args()
+    run_opts, overrides = parser.parse_known_args(arg_list)
     run(
-        args.params, args.root_folder, args.overfitting, args.device)
+        run_opts.params, run_opts.overfitting, run_opts.device, overrides)
+
