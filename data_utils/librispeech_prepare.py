@@ -16,6 +16,7 @@ import torchaudio
 from tqdm.contrib import tzip
 import time
 import pickle
+import argparse
 
 
 
@@ -582,9 +583,19 @@ def load_pkl(file):
         return pickle.load(f)
 
 if __name__ == "__main__":
-    data_folder = 'data/LibriSpeech'
+    parser = argparse.ArgumentParser(description="Run data prepare")
+    parser.add_argument(
+        "data_folder",
+        help='path to data folder',
+    )
+    parser.add_argument(
+        "--save_folder",
+        help='path to save files',
+    )
     tr_splits = ['train-clean-100']
     dev_splits = ['dev-clean']
     te_splits = ['test-clean']
     save_folder = 'data_dir'
-    prepare_librispeech(data_folder, save_folder, tr_splits, dev_splits, te_splits)
+    args = parser.parse_args()
+    prepare_librispeech(args.data_folder, args.save_folder, tr_splits, dev_splits, te_splits)
+
