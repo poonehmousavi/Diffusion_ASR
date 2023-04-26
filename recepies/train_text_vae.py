@@ -41,7 +41,7 @@ logger = logging.getLogger()
 best_epoch=0
 
 
-def run(params_file, overfitting_test,device, overrides):
+def run(params_file, overfitting_test,load_from_pretrained,device, overrides):
     hparams={}
     logger.info("Start loading parameters file")
     with open(params_file, 'r') as file:
@@ -104,6 +104,10 @@ def run(params_file, overfitting_test,device, overrides):
     else:
         logger.error(f"{hparams['model_type']} is not among supperted model types. Supported models are rnn, transformer and transformer_with_attention")
 
+
+    if load_from_pretrained:
+        logger.info("Loading from save checkpoint")
+        model = load_model(os.path.join(hparams['output_folder'],str(seed),'save','model.ckp'),model)
     # Define Optimizer
     if hparams['optimizer'].lower() == 'sgd':
         optimizer = torch.optim.SGD(model.parameters(), lr=float(hparams['lr']))
@@ -249,7 +253,7 @@ def train_batch(model, batch,optimizer,loss_module,tokenizer,hparams,device):
     ## Step 5: Update the parameters
     optimizer.step()
 
-    return loss.item(), NLL_loss.item()/ batch_size, KL_loss.item()/batch_size
+    return loss.item()/batch_size, NLL_loss.item()/ batch_size, KL_loss.item()/batch_size
 
 @torch.no_grad()
 def eval(model ,data_loader, loss_module ,hparams,tokenizer, device='cuda'):
@@ -338,7 +342,7 @@ def eval_batch(model, batch,loss_module,hparams, tokenizer, device):
     hypothesis= tokenizer.batch_decode(hyp,skip_special_tokens=True)
     reference= tokenizer.batch_decode(input_ids,skip_special_tokens=True)
     
-    return loss.item(), NLL_loss.item()/ batch_size, KL_loss.item()/batch_size ,hypothesis,reference
+    return loss.item()/batch_size, NLL_loss.item()/ batch_size, KL_loss.item()/batch_size ,hypothesis,reference
 
 
     
@@ -359,9 +363,12 @@ if __name__ == "__main__":
         help='device',
         default='cuda'
     )
+    
     parser.add_argument("--overfitting",action='store_true', help="in overfitting test mode",default=False)
+    parser.add_argument("--load_from_pretrained",action='store_true', help="if load frm pretrained and continue training from that point",default=False)
+
 
     # args = parser.parse_args()
     run_opts, overrides = parser.parse_known_args(arg_list)
     run(
-        run_opts.params, run_opts.overfitting, run_opts.device, overrides)
+        run_opts.params, run_opts.overfitting, run_opts.load_from_pretrained, run_opts.device, overrides)

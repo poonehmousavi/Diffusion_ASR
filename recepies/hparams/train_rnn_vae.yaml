@@ -34,7 +34,7 @@ tokenizer:
     cache_dir: *hub_cache_dir
 
 variational_beta : 1
-
+decoder_search:  top_ksample_temp
 
 number_of_epochs: 5
 lr: 1e-3
