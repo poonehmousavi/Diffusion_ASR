@@ -592,7 +592,7 @@ if __name__ == "__main__":
         "--save_folder",
         help='path to save files',
     )
-    tr_splits = ['train-clean-100']
+    tr_splits = ['train-clean-360']
     dev_splits = ['dev-clean']
     te_splits = ['test-clean']
     save_folder = 'data_dir'
