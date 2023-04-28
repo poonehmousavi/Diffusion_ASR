@@ -41,7 +41,7 @@ variational_beta : 1
 number_of_epochs: 5
 lr: 1e-3
 print_every: 100
-
+loss: mse #kl_div
 freeze_embedding: &freeze_embedding False
 
 # Parameters for decoding text
