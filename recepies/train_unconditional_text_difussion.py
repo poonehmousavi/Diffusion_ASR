@@ -17,6 +17,7 @@ from models.VAE import RNNVariationalAutoencoder, TransformerVariationalAutoenco
 from models.transformer import generate_pad_mask,generate_square_subsequent_mask,Transformer_Diffusion
 from difussion.ddpm import Diffusion
 from models.UNET import UNet_1D
+from models.Bert_HF import HuggingFaceBERT_AE
 from jiwer import wer,cer
 
 
@@ -97,12 +98,15 @@ def run(params_file, overfitting_test,device,overrides):
         ae_model= TransformerVariationalAutoencoder(**special_tokens, **hparams['ae_model'], embedding_weights=None,vocab_size =len(tokenizer), device=device)
     elif hparams['ae_model_type'].lower() == 'transformer_with_attention':
         ae_model= AttentionTransformerVariationalAutoencoder(**special_tokens, **hparams['ae_model'], embedding_weights=None,vocab_size =len(tokenizer), device=device)
+    elif  hparams['ae_model_type'].lower() == 'bert':
+        ae_model = HuggingFaceBERT_AE( **hparams['ae_model'], mask_token_id=tokenizer.mask_token_id, pad_token_id=tokenizer.pad_token_id,device=device)
+
     else:
-        logger.error(f"{hparams['ae_model_type']} is not among supperted model types. Supported models are rnn, transformer and transformer_with_attention")
+        logger.error(f"{hparams['ae_model_type']} is not among supperted model types. Supported models are rnn, transformer , transformer_with_attention and Bert")
     
     
-    hparams['ae_model_checkoint']=  os.path.join(data_root,hparams['ae_model_checkoint'])
-    ae_model = load_model(hparams['ae_model_checkoint'],ae_model)
+    if  hparams['ae_model_type'].lower() != 'bert':
+        ae_model = load_model(hparams['ae_model_checkoint'],ae_model)
 
 
 
@@ -150,8 +154,11 @@ def run(params_file, overfitting_test,device,overrides):
             predicted_noise = diffusion_model(x_t, t)
 
             # Calculate the loss
-            loss = mse(noise, predicted_noise)
-
+            if hparams['loss'] == 'mse':
+                loss = mse(noise, predicted_noise) 
+            else:
+                loss = KL_div(torch.nn.functional.softmax(noise, dim=-1), torch.nn.functional.softmax(predicted_noise, dim=-1))/batch_size
+            
             # calculate gradient and update parameter 
             optimizer.zero_grad()
             loss.backward()
@@ -178,15 +185,22 @@ def run(params_file, overfitting_test,device,overrides):
                 predicted_noise = diffusion_model(x_t, t)
 
                 # Calculate the loss
-                loss = mse(noise, predicted_noise)
+                # loss = mse(noise, predicted_noise)
+                if hparams['loss'] == 'mse':
+                    loss = mse(noise, predicted_noise) 
+                else:
+                    loss = KL_div(torch.nn.functional.softmax(noise, dim=-1), torch.nn.functional.softmax(predicted_noise, dim=-1))/batch_size
                 denoised_latent = diffusion.sample(diffusion_model, x=latent)
                 valid_loss.append(loss.item())
 
                 hyp= generate_txt(ae_model,denoised_latent.squeeze(1),tokenizer,hparams,device,input_ids=input_ids)
-                hypothesis= tokenizer.batch_decode(hyp,skip_special_tokens=True)
+                for i in range(hyp.shape[0]):
+                   temp_hyp=hyp[i][:input_ids_lens[i]]
+                   txt = tokenizer.decode(temp_hyp,skip_special_tokens=True)
+                   hypothesises.append(txt)
                 reference= tokenizer.batch_decode(input_ids,skip_special_tokens=True)
-                hypothesises.extend(hypothesis)
                 references.extend(reference)
+
 
 
             wer_score = wer(references,hypothesises)*100
@@ -236,22 +250,31 @@ def run(params_file, overfitting_test,device,overrides):
             predicted_noise = diffusion_model(x_t, t)
 
             # Calculate the loss
-            loss = mse(noise, predicted_noise)
+            if hparams['loss'] == 'mse':
+                loss = mse(noise, predicted_noise) 
+            else:
+                loss = KL_div(torch.nn.functional.softmax(noise, dim=-1), torch.nn.functional.softmax(predicted_noise, dim=-1))/batch_size
+                
             denoised_latent = diffusion.sample(diffusion_model, x=latent)
             valid_loss.append( loss.item())
 
             hyp= generate_txt(ae_model,denoised_latent.squeeze(1),tokenizer,hparams,device,input_ids=input_ids)
-            hypothesis= tokenizer.batch_decode(hyp,skip_special_tokens=True)
+            for i in range(hyp.shape[0]):
+                temp_hyp=hyp[i][:input_ids_lens[i]]
+                txt = tokenizer.decode(temp_hyp,skip_special_tokens=True)
+                hypothesises.append(txt)
             reference= tokenizer.batch_decode(input_ids,skip_special_tokens=True)
-            hypothesises.extend(hypothesis)
             references.extend(reference)
+
 
 
         wer_score = wer(references,hypothesises)*100
         cer_score= cer(references,hypothesises)*100
         logger.info("Test Epoch %i,Loss %9.4f , Test WER  %9.4f, Test CER %9.4f" % (best_epoch, np.mean(test_loss),wer_score,cer_score))
 
-
+def KL_div(p_probs, q_probs):    
+    KL_div = p_probs * torch.log(p_probs / q_probs)
+    return torch.sum(KL_div)
 
 def generate_latent(model,input_ids,input_ids_lens, tokenizer, hparams,device):
     input_ids = input_ids.to(device)
@@ -265,12 +288,17 @@ def generate_latent(model,input_ids,input_ids_lens, tokenizer, hparams,device):
     elif hparams['ae_model_type'].lower() == 'transformer':
         src_pad_mask= generate_pad_mask(input_ids, tokenizer.pad_token_id)
         latent_mu, latent_logvar = model.encoder(input_ids,src_pad_mask)
+        latent = model.latent_sample(latent_mu, latent_logvar)
 
     elif hparams['ae_model_type'].lower() == 'transformer_with_attention':
         src_pad_mask= generate_pad_mask(input_ids, tokenizer.pad_token_id)
         latent_mu, latent_logvar = model.encoder(input_ids,src_pad_mask)
+        latent = model.latent_sample(latent_mu, latent_logvar)
     
-    latent = model.latent_sample(latent_mu, latent_logvar)
+    elif hparams['ae_model_type'].lower() == 'bert':
+        src_pad_mask= generate_pad_mask(input_ids, tokenizer.pad_token_id)
+        latent = model.encoder(input_ids,src_pad_mask)
+
      #  add channel to the latent when having 2d latent, since we need to use UNET-1D
     if len(latent.shape) ==2:
         latent= latent.unsqueeze(1)
@@ -288,6 +316,8 @@ def generate_txt(model,latent,tokenizer,hparams,device,input_ids=None):
         else:
             src_pad_mask= generate_pad_mask(input_ids, tokenizer.pad_token_id)
         hyp,_ = model.decoder.inference(max_sequence_length=hparams['max_sequence_length'],memory_key_padding_mask=src_pad_mask,  z=latent,temp=hparams['temp'],mode=hparams['decoder_search'])
+    elif hparams['ae_model_type'].lower() == 'bert':
+        hyp = model.decoder.inference(z=latent,temp=hparams['temp'],mode=hparams['decoder_search'])
     return hyp
         
 

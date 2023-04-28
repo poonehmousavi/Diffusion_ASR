@@ -268,7 +268,7 @@ class AttentionTransformerDecoder(nn.Module):
     def inference(self, n=4, sample_seq_len=20, max_sequence_length=100, memory_key_padding_mask=None, z=None,temp=1.0, mode='sample_temp'):
         if z is None:
           batch_size = n
-          z = torch.randn([batch_size, sample_seq_len, self.latent_dims])
+          z = torch.randn([batch_size, sample_seq_len, self.latent_size])
         else:
           batch_size = z.size(0)
         
@@ -350,10 +350,10 @@ class TimeEncoding(nn.Module):
 
 
 class Transformer_Diffusion(nn.Module):
-    def __init__(self, embedding_dims,hidden_dim,num_layers,nhead,dropout =0.1,bidirectional =True):
+    def __init__(self, embedding_size,hidden_dim,num_layers,nhead,dropout =0.1,bidirectional =True):
         super(Transformer_Diffusion, self).__init__()
 
-        self.embedding_dims = embedding_dims
+        self.embedding_size = embedding_size
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers 
         self.bidirectional =bidirectional
@@ -361,12 +361,12 @@ class Transformer_Diffusion(nn.Module):
   
 
   
-        self.time_encoder = TimeEncoding(self.embedding_dims, self.dropout)
+        self.time_encoder = TimeEncoding(self.embedding_size, self.dropout)
         
-        decoder_layers = nn.TransformerEncoderLayer(self.embedding_dims, nhead, self.hidden_dim, dropout, batch_first=True)
+        decoder_layers = nn.TransformerEncoderLayer(self.embedding_size, nhead, self.hidden_dim, dropout, batch_first=True)
         self.transformer_encoder = TransformerEncoder(decoder_layers, num_layers)
 
-        decoder_layers = nn.TransformerDecoderLayer(self.embedding_dims, nhead, self.hidden_dim, dropout, batch_first=True)
+        decoder_layers = nn.TransformerDecoderLayer(self.embedding_size, nhead, self.hidden_dim, dropout, batch_first=True)
         self.transformer_decoder = TransformerDecoder(decoder_layers, num_layers)
 
   
@@ -385,7 +385,7 @@ class Transformer_Diffusion(nn.Module):
 
 if __name__ == '__main__':
     device='cpu'
-    trs_net = Transformer_Diffusion(embedding_dims=768,hidden_dim=1024,num_layers=8,nhead=4,dropout =0.1,bidirectional =True).to(device)
+    trs_net = Transformer_Diffusion(embedding_size=768,hidden_dim=1024,num_layers=8,nhead=4,dropout =0.1,bidirectional =True).to(device)
     print(sum([p.numel() for p in trs_net.parameters()]))
     x = torch.randn(32, 15, 768).to(device)
     t = x.new_tensor([500] * x.shape[0]).long().to(device)

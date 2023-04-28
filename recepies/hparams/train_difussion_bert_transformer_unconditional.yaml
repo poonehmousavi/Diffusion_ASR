@@ -2,7 +2,7 @@ seed: &seed 185
 
 # Data Setting
 data_folder:  data_dir
-output_folder:  results/diffusion_unconditional/
+output_folder:  results/diffusion_unconditional_bert_transformer/
 hub_cache_dir: &hub_cache_dir cache_dir/
 ae_model_checkoint: results/transformer_vae/185/save/model.ckp
 
@@ -30,9 +30,9 @@ test_loader_kwargs:
     shuffle: False,
     num_workers: 6
 
-tokenizer_type: gpt #gpt, char, bert
+tokenizer_type: bert #gpt, char, bert
 tokenizer:
-    src: gpt2
+    src: bert-base-uncased
     cache_dir: *hub_cache_dir
 
 variational_beta : 1
@@ -49,23 +49,23 @@ max_sequence_length: 100
 temp: 0.9
 decoder_search: temp_sample
 
-ae_model_type : transformer  #rnn, transformer or transformer_with_attention
-diff_model_type: unet_1d # transformer,unet_1d
+ae_model_type : bert  #rnn, transformer or transformer_with_attention, bert
+diff_model_type: transformer # transformer,unet_1d
 embedding_size : &embedding_size 768
 latent_size: &latent_size 16
+
+
 ae_model:
-    embedding_size: 768
-    hidden_size:  256
-    nhead: 4
-    dropout: 0.1
-    latent_size: *latent_size
-    num_layers: 1
-    tie_embedding: True
-    word_dropout_rate : 0.5
-    hidden_mode : mean
-    
+    src: bert-base-uncased
+    cache_dir: *hub_cache_dir
+    masking_ratios: 0.0
+    freeze_encoder: True
+    freeze_decoder: True
+
+
+
 diffusion:
-    embedding_size: *latent_size
+    embedding_size: *embedding_size
 
 # Transformer
 diffusion_model:
@@ -76,11 +76,11 @@ diffusion_model:
     dropout: 0.1
     bidirectional: True
 
-# Unet
-diffusion_model:
-     c_in: 1
-     c_out: 1
-     time_dim: 256
+# # Unet
+# diffusion_model:
+#      c_in: 1
+#      c_out: 1
+#      time_dim: 256
 
 
 

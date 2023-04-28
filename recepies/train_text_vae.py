@@ -113,6 +113,8 @@ def run(params_file, overfitting_test,load_from_pretrained,device, overrides):
         optimizer = torch.optim.SGD(model.parameters(), lr=float(hparams['lr']))
     elif hparams['optimizer'].lower() == 'adam':
         optimizer = torch.optim.Adam(model.parameters(), lr=float(hparams['lr']))
+    elif hparams['optimizer'].lower() == 'adamw':
+        optimizer = torch.optim.AdamW(model.parameters(), lr=float(hparams['lr']))
     else:
         logger.error(f"{hparams['optimizer']} is not among supperted optimizer. Supported models are SGD and Adam")
 

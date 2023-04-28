@@ -87,9 +87,11 @@ def get_tokenizer(tokenizer_opt, **params):
     
     elif tokenizer_opt == "gpt":
       tokenizer, embedding_model = get_gpt_tokenizer(**params)
+    elif tokenizer_opt == "bert":
+      tokenizer, embedding_model = get_BERT_tokenizer(**params)
       
     else:
-      logger.error(f"{tokenizer_opt} is not among supperted tokenizer. Valid options are char, gpt")
+      logger.error(f"{tokenizer_opt} is not among supperted tokenizer. Valid options are char, gpt and bert")
     
     return tokenizer, embedding_model
 
@@ -104,6 +106,17 @@ def get_gpt_tokenizer(src, cache_dir):
     embedding_model = GPT2LMHeadModel.from_pretrained(src,cache_dir=cache_dir)  # or any other checkpoint
     embedding_model.resize_token_embeddings(len(tokenizer))
     return tokenizer,embedding_model
+
+def get_BERT_tokenizer(src,cache_dir):
+  tokenizer = BertTokenizer.from_pretrained(src,cache_dir=cache_dir)
+  bos = '<|bos|>'
+  eos = '<|eos|>'
+  special_tokens_dict = {'eos_token': eos, 'bos_token': bos}
+  tokenizer.add_special_tokens(special_tokens_dict)
+  embedding_model = BertModel.from_pretrained(src,cache_dir=cache_dir)
+  embedding_model.resize_token_embeddings(len(tokenizer))
+  return tokenizer,embedding_model
+
   
       
       

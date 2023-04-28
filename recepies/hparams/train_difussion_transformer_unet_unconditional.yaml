@@ -1,0 +1,97 @@
+seed: &seed 185
+
+# Data Setting
+data_folder:  data_dir
+output_folder:  results/diffusion_unconditional/
+hub_cache_dir: &hub_cache_dir cache_dir/
+ae_model_checkoint: results/transformer_vae/185/save/model.ckp
+
+
+train_batch_size : &train_batch_size 16
+valid_batch_size : &valid_batch_size 8
+test_batch_size : &test_batch_size 8
+
+train_csv:  train-clean-100.csv
+valid_csv:  dev-clean.csv
+test_csv:  test-clean.csv
+
+train_loader_kwargs:
+    batch_size: *train_batch_size
+    shuffle: True,
+    num_workers: 6
+
+valid_loader_kwargs:
+    batch_size: *valid_batch_size
+    shuffle: False,
+    num_workers: 6
+
+test_loader_kwargs:
+    batch_size: *test_batch_size
+    shuffle: False,
+    num_workers: 6
+
+tokenizer_type: gpt #gpt, char, bert
+tokenizer:
+    src: gpt2
+    cache_dir: *hub_cache_dir
+
+variational_beta : 1
+
+
+number_of_epochs: 5
+lr: 1e-3
+print_every: 100
+
+freeze_embedding: &freeze_embedding False
+sample_size: 8
+
+# Parameters for decoding text
+max_sequence_length: 100
+temp: 0.9
+decoder_search: temp_sample
+
+ae_model_type : rnn  #rnn, transformer or transformer_with_attention
+diff_model_type: unet_1d # transformer,unet_1d
+embedding_size : &embedding_size 768
+latent_size: &latent_size 16
+
+ae_model:
+    embedding_size: 768
+    hidden_size:  256
+    dropout: 0.1
+    latent_size: *latent_size
+    num_layers: 1
+    tie_embedding: True
+    word_dropout_rate : 0.5
+    hidden_mode : mean
+
+diffusion:
+    embedding_size: *latent_size
+
+# Transformer
+diffusion_model:
+    embedding_size: *embedding_size
+    hidden_dim: 1024
+    num_layers: 16
+    nhead: 8
+    dropout: 0.1
+    bidirectional: True
+
+# Unet
+diffusion_model:
+     c_in: 1
+     c_out: 1
+     time_dim: 256
+
+
+
+
+
+optimizer: AdamW # SGD , Adam, AdamW
+
+train_logs: train_log.txt
+test_wer: test_wer.txt
+
+
+
+
