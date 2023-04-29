@@ -190,22 +190,24 @@ def run(params_file, overfitting_test,device,overrides):
                     loss = mse(noise, predicted_noise) 
                 else:
                     loss = KL_div(torch.nn.functional.softmax(noise, dim=-1), torch.nn.functional.softmax(predicted_noise, dim=-1))/batch_size
-                denoised_latent = diffusion.sample(diffusion_model, x=latent)
+                # denoised_latent = diffusion.sample(diffusion_model, x=latent)
                 valid_loss.append(loss.item())
 
-                hyp= generate_txt(ae_model,denoised_latent.squeeze(1),tokenizer,hparams,device,input_ids=input_ids)
-                for i in range(hyp.shape[0]):
-                   temp_hyp=hyp[i][:input_ids_lens[i]]
-                   txt = tokenizer.decode(temp_hyp,skip_special_tokens=True)
-                   hypothesises.append(txt)
-                reference= tokenizer.batch_decode(input_ids,skip_special_tokens=True)
-                references.extend(reference)
+                # hyp= generate_txt(ae_model,denoised_latent.squeeze(1),tokenizer,hparams,device,input_ids=input_ids)
+                # for i in range(hyp.shape[0]):
+                #    temp_hyp=hyp[i][:input_ids_lens[i]]
+                #    txt = tokenizer.decode(temp_hyp,skip_special_tokens=True)
+                #    hypothesises.append(txt)
+                # reference= tokenizer.batch_decode(input_ids,skip_special_tokens=True)
+                # references.extend(reference)
 
 
 
             wer_score = wer(references,hypothesises)*100
             cer_score= cer(references,hypothesises)*100
-            logger.info("Valid Epoch %02d/%i,Loss %9.4f , Valid WER  %9.4f, Valid CER %9.4f" % (epoch, hparams['number_of_epochs'], np.mean(valid_loss),wer_score,cer_score))
+            # logger.info("Valid Epoch %02d/%i,Loss %9.4f , Valid WER  %9.4f, Valid CER %9.4f" % (epoch, hparams['number_of_epochs'], np.mean(valid_loss),wer_score,cer_score))
+            logger.info("Valid Epoch %02d/%i,Loss %9.4f" % (epoch, hparams['number_of_epochs']))
+
             # save loss stats
             log_file = open(os.path.join(hparams['output_folder'],str(hparams.seed),hparams['train_logs']), "a")
             log_file.write(f"Epoch: {epoch}, train loss: {np.mean(train_loss)}, Valid loss: {np.mean(valid_loss)},  valid WER: {wer_score} , valid_cer: {cer_score}\n")
@@ -279,7 +281,7 @@ def KL_div(p_probs, q_probs):
 def generate_latent(model,input_ids,input_ids_lens, tokenizer, hparams,device):
     input_ids = input_ids.to(device)
     
-            
+    logger.info("Valid Epoch %02d/%i,Loss %9.4f " % (epoch, hparams['number_of_epochs'], np.mean(valid_loss)))
     # get latent representation from pretrained ae
     if hparams['ae_model_type'].lower() == 'rnn':
         latent_mu, latent_logvar = model.encoder(input_ids, input_ids_lens)
