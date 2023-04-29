@@ -19,4 +19,4 @@ cd $HOME/Diffusion_ASR/data_utils/
 python librispeech_prepare.py $SLURM_TMPDIR/LibriSpeech --save_folder=$SLURM_TMPDIR/LibriSpeech
 
 cd $HOME/Diffusion_ASR/recepies
-python  train_unconditional_text_difussion.py hparams/train_difussion_bert_transformer_unconditional.yaml   --hub_cache_dir=$SLURM_TMPDIR/scratch/cache_dir/ --output_folder=$HOME/scratch/Difussion_ASR/bert_difussion_unconditional/  --train_csv=train-clean-360.csv --data_folder=$SLURM_TMPDIR/LibriSpeech/  --train_batch_size=256 --valid_batch_size=128 --test_batch_size=128 --number_of_epochs=20 --optimizer=adam
+python  train_unconditional_text_difussion.py hparams/train_difussion_rnn_unet_unconditional.yaml   --hub_cache_dir=$SLURM_TMPDIR/scratch/cache_dir/ --output_folder=$HOME/scratch/Difussion_ASR/rmm_unet_difussion_unconditional/  --ae_model_checkoint=$HOME/scratch/Difussion_ASR/rnn_vae/185/save/model.ckp --train_csv=train-clean-360.csv --data_folder=$SLURM_TMPDIR/LibriSpeech/  --train_batch_size=256 --valid_batch_size=128 --test_batch_size=128 --number_of_epochs=20 --optimizer=adam

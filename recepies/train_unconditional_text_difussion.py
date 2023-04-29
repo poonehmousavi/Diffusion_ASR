@@ -136,7 +136,7 @@ def run(params_file, overfitting_test,device,overrides):
     diffusion = Diffusion(**hparams['diffusion'], device=device)
     diffusion_model =diffusion_model.to(device)
     ae_model = ae_model.to(device)
-    ae_model.eval()
+    ae_model.train()
     
 
     for epoch in range(hparams['number_of_epochs']):
@@ -170,6 +170,8 @@ def run(params_file, overfitting_test,device,overrides):
         valid_loss=[]
         references=[]
         hypothesises=[]
+        ae_model.eval()
+
         diffusion_model.eval()
         with torch.no_grad():
             for i, batch in enumerate(tqdm(valid_loader)):
@@ -203,14 +205,14 @@ def run(params_file, overfitting_test,device,overrides):
 
 
 
-            wer_score = wer(references,hypothesises)*100
-            cer_score= cer(references,hypothesises)*100
+            # wer_score = wer(references,hypothesises)*100
+            # cer_score= cer(references,hypothesises)*100
             # logger.info("Valid Epoch %02d/%i,Loss %9.4f , Valid WER  %9.4f, Valid CER %9.4f" % (epoch, hparams['number_of_epochs'], np.mean(valid_loss),wer_score,cer_score))
-            logger.info("Valid Epoch %02d/%i,Loss %9.4f" % (epoch, hparams['number_of_epochs']))
+            logger.info("Valid Epoch %02d/%i,Loss %9.4f" % (epoch, hparams['number_of_epochs'],np.mean(valid_loss)))
 
             # save loss stats
             log_file = open(os.path.join(hparams['output_folder'],str(hparams.seed),hparams['train_logs']), "a")
-            log_file.write(f"Epoch: {epoch}, train loss: {np.mean(train_loss)}, Valid loss: {np.mean(valid_loss)},  valid WER: {wer_score} , valid_cer: {cer_score}\n")
+            log_file.write(f"Epoch: {epoch}, train loss: {np.mean(train_loss)}, Valid loss: {np.mean(valid_loss)}\n")
             log_file.close()
             
                     # save best model based on WER
@@ -280,11 +282,10 @@ def KL_div(p_probs, q_probs):
 
 def generate_latent(model,input_ids,input_ids_lens, tokenizer, hparams,device):
     input_ids = input_ids.to(device)
-    
-    logger.info("Valid Epoch %02d/%i,Loss %9.4f " % (epoch, hparams['number_of_epochs'], np.mean(valid_loss)))
     # get latent representation from pretrained ae
     if hparams['ae_model_type'].lower() == 'rnn':
         latent_mu, latent_logvar = model.encoder(input_ids, input_ids_lens)
+        latent = model.latent_sample(latent_mu, latent_logvar)
 
         
     elif hparams['ae_model_type'].lower() == 'transformer':

@@ -70,7 +70,10 @@ def run(params_file, overfitting_test,load_from_pretrained,device, overrides):
 
     #  Loading  Tokenizer and embedding model
     tokenizer, embedding = get_tokenizer(hparams['tokenizer_type'],**hparams['tokenizer'])
-    word_embeddings= embedding.transformer.wte.weight
+    if hparams['tokenizer_type'] == 'gpt':
+        word_embeddings= embedding.transformer.wte.weight
+    else:
+        word_embeddings = None
     special_tokens= {'bos_token_id':tokenizer.bos_token_id, 'eos_token_id':tokenizer.eos_token_id, 'pad_token_id':tokenizer.pad_token_id, 'unk_token_id':tokenizer.unk_token_id}
     
     # Loading Dataset and Dataloader

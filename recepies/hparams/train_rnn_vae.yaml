@@ -28,7 +28,7 @@ test_loader_kwargs:
     shuffle: False,
     num_workers: 6
 
-tokenizer_type: gpt #gpt, char, bert
+tokenizer_type: char #gpt, char, bert
 tokenizer:
     src: gpt2
     cache_dir: *hub_cache_dir
@@ -62,7 +62,7 @@ model:
 
 
 
-optimizer: adam # SGD , Adam
+optimizer: adamW # SGD , Adam
 
 train_logs: train_log.txt
 valid_wer: valid_wer.txt
