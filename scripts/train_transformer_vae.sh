@@ -19,4 +19,4 @@ cd $HOME/Diffusion_ASR/data_utils/
 python librispeech_prepare.py $SLURM_TMPDIR/LibriSpeech --save_folder=$SLURM_TMPDIR/LibriSpeech
 
 cd $HOME/Diffusion_ASR/recepies
-python  train_text_vae.py hparams/train_rnn_vae.yaml  --hub_cache_dir=$SLURM_TMPDIR/cache_dir/ --output_folder=$HOME/scratch/Difussion_ASR/rnn_vae/  --train_csv=train-clean-360.csv --data_folder=$SLURM_TMPDIR/LibriSpeech/ --optimizer=adam --train_batch_size=256 --valid_batch_size=128 --test_batch_size=128 --number_of_epochs=20 
+ipython  train_text_vae.py hparams/train_transformer_vae.yaml  --hub_cache_dir=$SLURM_TMPDIR/cache_dir/ --output_folder=$HOME/scratch/Difussion_ASR/transformer_vae/  --train_csv=train-clean-360.csv --data_folder=$SLURM_TMPDIR/LibriSpeech/ --optimizer=adam --train_batch_size=256 --valid_batch_size=128 --test_batch_size=128 --number_of_epochs=20 
