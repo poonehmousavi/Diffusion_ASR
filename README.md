@@ -1,4 +1,4 @@
-# Continual Learning for Massively Multilingual Speech Recognition
+# Stable Diffusion for Unconditional Text Generation
 
 The objective of Text Generation is to produce written content that is virtually identical to humangenerated
 text. This process is commonly referred to as ”natural language generation” in academic
