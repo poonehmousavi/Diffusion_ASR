@@ -76,7 +76,7 @@ python train_text_vae.py hparams/train_<vae-method>_vae.yaml
 python train_text_vae.py hparams/train_<vae-method>.yaml --number_of_epochs=1
 ```
 
-### Traing Difussion
+### Traing Difdusion
 
 Navigate to `<path-to-repository>/recipes/`, open a terminal and run
 (remember to activate the virtual environment via `source activate text_diffusion_env` if you installed the project using Conda):
@@ -90,19 +90,8 @@ python train_text_vae.py hparams/train_<vae-method>.yaml
 python train_unconditional_text_difussion.py hparams/train_<vae-method>_diffusion.yaml --number_of_epochs=1
 ```
 
-
-
-
-
-### Traing VAE
-
-Navigate to `<path-to-repository>/recipes/`, open a terminal and run
-(remember to activate the virtual environment via `source activate text_diffusion_env` if you installed the project using Conda):
-
-```
-python train_text_vae.py hparams/train_<vae-method>.yaml
 ---------------------------------------------------------------------------------------------------------
 
 ## 📧 Contact
 
-[luca.dellalib@gmail.com](mailto:luca.dellalib@gmail.com)
+[mousavi.pooneh@gmail.com](mousavi.pooneh@gmail.com)
