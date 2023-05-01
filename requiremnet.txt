@@ -1,0 +1,7 @@
+pandas ==  1.5.3 
+transformers == 4.25.1
+jiwer == 3.0.1  
+tqdm == 4.64.1 
+torch==0.13.1 
+torchaudio== 1.13.1 
+hyperpyyaml == 1.1.0
